@@ -6,6 +6,28 @@ PROTON_GE_DIR="$SCRIPT_DIR/proton-ge"
 GAME_PATH="$SCRIPT_DIR/BDivision S.C.H.A.L.E. Defense.exe"
 GAME_NAME="Blue Division"
 COMPAT_DATA_PATH="$SCRIPT_DIR/compatdata"
+SCRIPT_NAME="$(basename "$0")"
+CURRENT_SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
+
+# Version: 1.0.1
+
+# Check for script updates
+echo "Checking for script updates..."
+LATEST_RELEASE=$(curl -s https://api.github.com/repos/BDivWrapper/BlueDivisionWrapper/releases/latest)
+LATEST_VERSION=$(echo "$LATEST_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_ASSET_URL=$(echo "$LATEST_RELEASE" | grep browser_download_url | grep "$SCRIPT_NAME" | cut -d '"' -f 4)
+
+if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "$(grep '^# Version:' "$CURRENT_SCRIPT_PATH" | cut -d ' ' -f 3)" ]; then
+    echo "New version found: $LATEST_VERSION. Updating..."
+    wget -O "$CURRENT_SCRIPT_PATH.tmp" "$LATEST_ASSET_URL"
+    chmod +x "$CURRENT_SCRIPT_PATH.tmp"
+    mv "$CURRENT_SCRIPT_PATH.tmp" "$CURRENT_SCRIPT_PATH"
+    echo "Updated to version $LATEST_VERSION."
+    exec "$CURRENT_SCRIPT_PATH" "$@"
+    exit 0
+else
+    echo "No update needed."
+fi
 
 # Create Proton-GE and compatibility data directories if they don't exist
 mkdir -p "$PROTON_GE_DIR"
@@ -44,6 +66,12 @@ for dir in "$PROTON_GE_DIR"/GE-Proton*; do
         fi
     fi
 done
+
+# If no valid Proton-GE version could be found, exit the script
+if [ -z "$HIGHEST_LOCAL_RELEASE" ]; then
+    echo "No valid Proton-GE version found. Exiting."
+    exit 1
+fi
 
 # Path to the highest version of Proton-GE found
 PROTON_PATH="$PROTON_GE_DIR/$HIGHEST_LOCAL_RELEASE/proton"
