@@ -9,7 +9,7 @@ COMPAT_DATA_PATH="$SCRIPT_DIR/compatdata"
 SCRIPT_NAME="$(basename "$0")"
 CURRENT_SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
 
-# Version: 1.0.1
+# Version: 1.0.2
 
 # Check for script updates
 echo "Checking for script updates..."
@@ -40,17 +40,32 @@ LATEST_RELEASE=$(curl -s https://api.github.com/repos/GloriousEggroll/proton-ge-
 # Get the filename from the URL
 if [ -n "$LATEST_RELEASE" ]; then
     FILENAME=$(basename "$LATEST_RELEASE")
-    # Download the release if not already downloaded
-    if [ ! -f "$PROTON_GE_DIR/$FILENAME" ]; then
+    FOLDERNAME="${FILENAME%.tar.gz}"
+    
+    # Download and extract the latest Proton-GE release if not already extracted
+    if [ ! -d "$PROTON_GE_DIR/$FOLDERNAME" ]; then
         echo "Downloading $FILENAME..."
         wget -O "$PROTON_GE_DIR/$FILENAME" "$LATEST_RELEASE"
         echo "Extracting $FILENAME..."
         tar -xzf "$PROTON_GE_DIR/$FILENAME" -C "$PROTON_GE_DIR"
 
         # Ensure the Proton executable is marked as executable
-        chmod +x "$PROTON_GE_DIR/${FILENAME%.tar.gz}/proton"
+        chmod +x "$PROTON_GE_DIR/$FOLDERNAME/proton"
+
+        # Clean up the tar.gz file
+        echo "Deleting $FILENAME..."
+        rm "$PROTON_GE_DIR/$FILENAME"
+
+        # Remove old versions of Proton-GE
+        echo "Removing old versions of Proton-GE..."
+        for dir in "$PROTON_GE_DIR"/GE-Proton*; do
+            if [[ -d "$dir" && "$dir" != "$PROTON_GE_DIR/$FOLDERNAME" ]]; then
+                echo "Deleting $dir..."
+                rm -rf "$dir"
+            fi
+        done
     else
-        echo "$FILENAME already exists. Skipping download and extraction."
+        echo "$FOLDERNAME already exists. Skipping download and extraction."
     fi
 else
     echo "Unable to reach GitHub. Skipping download and using local versions."
