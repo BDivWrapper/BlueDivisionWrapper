@@ -3,13 +3,44 @@
 # Variables
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROTON_GE_DIR="$SCRIPT_DIR/proton-ge"
-GAME_PATH="$SCRIPT_DIR/BDivision S.C.H.A.L.E. Defense.exe"
+GAME_DIR="$SCRIPT_DIR/game"
+GAME_FOLDER="BlueDivision"
+GAME_PATH="$GAME_DIR/$GAME_FOLDER/BDivision S.C.H.A.L.E. Defense.exe"
 GAME_NAME="Blue Division"
 COMPAT_DATA_PATH="$SCRIPT_DIR/compatdata"
 SCRIPT_NAME="$(basename "$0")"
 CURRENT_SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
 
-# Version: 1.0.2
+# Version: 1.1.0
+# Game Version: None
+
+# Functions for user prompts
+prompt_user() {
+    local message="$1"
+    if [ -t 1 ]; then
+        # Terminal prompt
+        read -p "$message (y/n): " response
+    else
+        # GUI prompt using zenity (fallback to terminal if zenity is not installed)
+        if command -v zenity &> /dev/null; then
+            response=$(zenity --question --text="$message" --title="Update Prompt" --ok-label="Yes" --cancel-label="No" && echo "y" || echo "n")
+        else
+            read -p "$message (y/n): " response
+        fi
+    fi
+    echo "$response"
+}
+
+# Function to flatten the game directory structure
+flatten_directory() {
+    local dir="$1"
+    while [ "$(find "$dir" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1 ] && [ "$(find "$dir" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 0 ]; do
+        subdir="$(find "$dir" -mindepth 1 -maxdepth 1 -type d)"
+        echo "Flattening directory: Moving contents of $subdir to $dir"
+        mv "$subdir"/* "$dir"
+        rmdir "$subdir"
+    done
+}
 
 # Check for script updates
 echo "Checking for script updates..."
@@ -18,57 +49,91 @@ LATEST_VERSION=$(echo "$LATEST_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"
 LATEST_ASSET_URL=$(echo "$LATEST_RELEASE" | grep browser_download_url | grep "$SCRIPT_NAME" | cut -d '"' -f 4)
 
 if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "$(grep '^# Version:' "$CURRENT_SCRIPT_PATH" | cut -d ' ' -f 3)" ]; then
-    echo "New version found: $LATEST_VERSION. Updating..."
-    wget -O "$CURRENT_SCRIPT_PATH.tmp" "$LATEST_ASSET_URL"
-    chmod +x "$CURRENT_SCRIPT_PATH.tmp"
-    mv "$CURRENT_SCRIPT_PATH.tmp" "$CURRENT_SCRIPT_PATH"
-    echo "Updated to version $LATEST_VERSION."
-    exec "$CURRENT_SCRIPT_PATH" "$@"
-    exit 0
+    response=$(prompt_user "A new script version ($LATEST_VERSION) is available. Would you like to update?")
+    if [[ "$response" == "y" ]]; then
+        echo "Updating script..."
+        wget -O "$CURRENT_SCRIPT_PATH.tmp" "$LATEST_ASSET_URL"
+        chmod +x "$CURRENT_SCRIPT_PATH.tmp"
+        mv "$CURRENT_SCRIPT_PATH.tmp" "$CURRENT_SCRIPT_PATH"
+        echo "Updated to version $LATEST_VERSION."
+        exec "$CURRENT_SCRIPT_PATH" "$@"
+        exit 0
+    else
+        echo "Skipping script update."
+    fi
 else
-    echo "No update needed."
+    echo "No script update needed."
 fi
 
-# Create Proton-GE and compatibility data directories if they don't exist
+# Create directories if they don't exist
 mkdir -p "$PROTON_GE_DIR"
 mkdir -p "$COMPAT_DATA_PATH"
+mkdir -p "$GAME_DIR"
 
-# Attempt to fetch the latest Proton-GE release from GitHub
+# Check for Proton-GE updates
 echo "Checking for the latest Proton-GE release online..."
 LATEST_RELEASE=$(curl -s https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest | grep browser_download_url | grep tar.gz | cut -d '"' -f 4)
 
-# Get the filename from the URL
 if [ -n "$LATEST_RELEASE" ]; then
     FILENAME=$(basename "$LATEST_RELEASE")
     FOLDERNAME="${FILENAME%.tar.gz}"
-    
-    # Download and extract the latest Proton-GE release if not already extracted
+
     if [ ! -d "$PROTON_GE_DIR/$FOLDERNAME" ]; then
-        echo "Downloading $FILENAME..."
-        wget -O "$PROTON_GE_DIR/$FILENAME" "$LATEST_RELEASE"
-        echo "Extracting $FILENAME..."
-        tar -xzf "$PROTON_GE_DIR/$FILENAME" -C "$PROTON_GE_DIR"
+        response=$(prompt_user "A new Proton-GE version ($FOLDERNAME) is available. Would you like to update?")
+        if [[ "$response" == "y" ]]; then
+            echo "Updating Proton-GE..."
+            wget -O "$PROTON_GE_DIR/$FILENAME" "$LATEST_RELEASE"
+            echo "Extracting $FILENAME..."
+            tar -xzf "$PROTON_GE_DIR/$FILENAME" -C "$PROTON_GE_DIR"
+            chmod +x "$PROTON_GE_DIR/$FOLDERNAME/proton"
+            rm "$PROTON_GE_DIR/$FILENAME"
 
-        # Ensure the Proton executable is marked as executable
-        chmod +x "$PROTON_GE_DIR/$FOLDERNAME/proton"
-
-        # Clean up the tar.gz file
-        echo "Deleting $FILENAME..."
-        rm "$PROTON_GE_DIR/$FILENAME"
-
-        # Remove old versions of Proton-GE
-        echo "Removing old versions of Proton-GE..."
-        for dir in "$PROTON_GE_DIR"/GE-Proton*; do
-            if [[ -d "$dir" && "$dir" != "$PROTON_GE_DIR/$FOLDERNAME" ]]; then
-                echo "Deleting $dir..."
-                rm -rf "$dir"
-            fi
-        done
+            echo "Removing old versions of Proton-GE..."
+            for dir in "$PROTON_GE_DIR"/GE-Proton*; do
+                if [[ -d "$dir" && "$dir" != "$PROTON_GE_DIR/$FOLDERNAME" ]]; then
+                    echo "Deleting $dir..."
+                    rm -rf "$dir"
+                fi
+            done
+        else
+            echo "Skipping Proton-GE update."
+        fi
     else
         echo "$FOLDERNAME already exists. Skipping download and extraction."
     fi
 else
-    echo "Unable to reach GitHub. Skipping download and using local versions."
+    echo "Unable to reach GitHub. Skipping Proton-GE update and using local versions."
+fi
+
+# Check for game updates
+echo "Checking for the latest game release online..."
+LATEST_GAME_RELEASE=$(curl -s https://api.github.com/repos/WhatIsThisG/BlueDivision_Release/releases/latest)
+LATEST_GAME_VERSION=$(echo "$LATEST_GAME_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_GAME_ASSET_URL=$(echo "$LATEST_GAME_RELEASE" | grep browser_download_url | grep zip | cut -d '"' -f 4)
+
+if [ -n "$LATEST_GAME_VERSION" ] && [ "$LATEST_GAME_VERSION" != "$(grep '^# Game Version:' "$CURRENT_SCRIPT_PATH" | cut -d ' ' -f 4)" ]; then
+    response=$(prompt_user "A new game version ($LATEST_GAME_VERSION) is available. Would you like to update?")
+    if [[ "$response" == "y" ]]; then
+        echo "Updating game..."
+        wget -O "BlueDivision.zip" "$LATEST_GAME_ASSET_URL"
+        echo "Deleting old game files..."
+        rm -rf "$GAME_DIR"/*
+        echo "Extracting BlueDivision.zip..."
+        unzip -o "BlueDivision.zip" -d "$GAME_DIR"
+        rm "BlueDivision.zip"
+
+        # Flatten the directory structure
+        flatten_directory "$GAME_DIR"
+
+        # Update the Game Version in the script
+        sed -i "s/^# Game Version:.*/# Game Version: $LATEST_GAME_VERSION/" "$CURRENT_SCRIPT_PATH"
+
+        GAME_PATH="$GAME_DIR/BDivision S.C.H.A.L.E. Defense.exe"
+    else
+        echo "Skipping game update."
+    fi
+else
+    echo "No game update needed."
 fi
 
 # Find the highest numbered Proton-GE release in the local directory
