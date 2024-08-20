@@ -11,21 +11,32 @@ COMPAT_DATA_PATH="$SCRIPT_DIR/compatdata"
 SCRIPT_NAME="$(basename "$0")"
 CURRENT_SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
 
-# Version: 1.1.0
+# Version: 1.1.1
 # Game Version: None
 
-# Functions for user prompts
+# Functions for user prompts using tkinter
 prompt_user() {
     local message="$1"
     if [ -t 1 ]; then
         # Terminal prompt
         read -p "$message (y/n): " response
     else
-        # GUI prompt using zenity (fallback to terminal if zenity is not installed)
-        if command -v zenity &> /dev/null; then
-            response=$(zenity --question --text="$message" --title="Update Prompt" --ok-label="Yes" --cancel-label="No" && echo "y" || echo "n")
+        # GUI prompt using tkinter
+        python3 - <<END
+import tkinter as tk
+from tkinter import messagebox
+import sys
+
+root = tk.Tk()
+root.withdraw()
+response = messagebox.askyesno("Update Available", "$message")
+sys.exit(0 if response else 1)
+END
+        response=$?
+        if [ $response -eq 0 ]; then
+            response="y"
         else
-            read -p "$message (y/n): " response
+            response="n"
         fi
     fi
     echo "$response"
