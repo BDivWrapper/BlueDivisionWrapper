@@ -11,18 +11,34 @@ COMPAT_DATA_PATH="$SCRIPT_DIR/compatdata"
 SCRIPT_NAME="$(basename "$0")"
 CURRENT_SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
 
-# Version: 1.1.1
+# Version: 1.1.2
 # Game Version: None
 
-# Functions for user prompts using tkinter
+# Functions for user prompts using kdialog, zenity, or tkinter
 prompt_user() {
     local message="$1"
     if [ -t 1 ]; then
         # Terminal prompt
         read -p "$message (y/n): " response
     else
-        # GUI prompt using tkinter
-        python3 - <<END
+        # GUI prompt using kdialog, zenity, or tkinter
+        if command -v kdialog > /dev/null 2>&1; then
+            # Use kdialog for KDE
+            if kdialog --yesno "$message" --title "Update Available"; then
+                response="y"
+            else
+                response="n"
+            fi
+        elif command -v zenity > /dev/null 2>&1; then
+            # Use zenity for GTK environments
+            if zenity --question --text="$message" --title="Update Available"; then
+                response="y"
+            else
+                response="n"
+            fi
+        else
+            # Fallback to tkinter if kdialog and zenity are not available
+            python3 - <<END
 import tkinter as tk
 from tkinter import messagebox
 import sys
@@ -32,15 +48,17 @@ root.withdraw()
 response = messagebox.askyesno("Update Available", "$message")
 sys.exit(0 if response else 1)
 END
-        response=$?
-        if [ $response -eq 0 ]; then
-            response="y"
-        else
-            response="n"
+            response=$?
+            if [ $response -eq 0 ]; then
+                response="y"
+            else
+                response="n"
+            fi
         fi
     fi
     echo "$response"
 }
+
 
 # Function to flatten the game directory structure
 flatten_directory() {
