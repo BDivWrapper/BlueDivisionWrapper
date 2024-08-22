@@ -81,50 +81,55 @@ log() {
 
 # Function to detect OS and return relevant information
 detect_os() {
-    local os_type variant_type package_manager install_command
+    local os_type variant package_manager install_command
 
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         os_type=${ID,,}
-        variant_type=${VARIANT_ID:-none}
+        variant=${VARIANT,,}
     elif [ -f /etc/lsb-release ]; then
         . /etc/lsb-release
         os_type=${DISTRIB_ID,,}
-        variant_type="none"
+        variant="none"
     else
         os_type=$(uname -s)
-        variant_type="none"
+        variant="none"
     fi
 
-    case "$os_type" in
-    ubuntu | debian | linuxmint)
-        package_manager="apt"
-        install_command="apt-get install -y"
-        ;;
-    fedora | centos | rhel | rocky)
-        package_manager=$(command -v dnf &>/dev/null && echo "dnf" || echo "yum")
-        install_command="$package_manager install -y"
-        ;;
-    arch | manjaro)
-        package_manager="pacman"
-        install_command="pacman -Sy --noconfirm"
-        ;;
-    opensuse*)
-        package_manager="zypper"
-        install_command="zypper install -y"
-        ;;
-    *)
-        package_manager="unknown"
-        install_command="unknown"
-        ;;
-    esac
+    # Check for Fedora Atomic variants (e.g., Kinoite, Silverblue)
+    if [[ "$os_type" == "fedora" ]] && [[ "$variant" =~ ^(kinoite|silverblue)$ ]]; then
+        package_manager="none"
+        install_command="rpm-ostree install"
+    else
+        case "$os_type" in
+        ubuntu | debian | linuxmint)
+            package_manager="apt"
+            install_command="apt-get install -y"
+            ;;
+        fedora | centos | rhel | rocky)
+            package_manager=$(command -v dnf &>/dev/null && echo "dnf" || echo "yum")
+            install_command="$package_manager install -y"
+            ;;
+        arch | manjaro)
+            package_manager="pacman"
+            install_command="pacman -Sy --noconfirm"
+            ;;
+        opensuse*)
+            package_manager="zypper"
+            install_command="zypper install -y"
+            ;;
+        *)
+            package_manager="unknown"
+            install_command="unknown"
+            ;;
+        esac
+    fi
 
-    echo "$os_type $variant_type $package_manager $install_command"
+    echo "$os_type $variant $package_manager $install_command"
 }
 
 # Function to install dependencies
 install_dependencies() {
-    local dependencies=("curl" "wget" "jq" "unzip" "pv" "whiptail")
     local os_info os_type variant_type package_manager install_command old_IFS
 
     os_info=$(detect_os)
@@ -137,28 +142,45 @@ install_dependencies() {
     log "DEBUG" "Package Manager: $package_manager"
     log "DEBUG" "Install Command: $install_command"
 
-    if [ "$package_manager" = "unknown" ]; then
-        log "WARN" "Unsupported OS: $os_type"
-        log "WARN" "Please install dependencies manually"
-        return 1
-    elif [[ "$variant_type" =~ ^(kinoite|silverblue)$ ]]; then
-        log "WARN" "Unsupported OS variant: $variant_type"
-        log "WARN" "Please install dependencies manually"
-        return 1
-    fi
-
-    for dep in "${dependencies[@]}"; do
-        if ! command -v "$dep" &>/dev/null; then
-            log "INFO" "Installing $dep..."
-            if ! eval "sudo $install_command $dep"; then
-                log "ERROR" "Failed to install $dep"
-                return 1
+    if [[ "$os_type" == "fedora" ]]; then
+        local dependencies=("curl" "wget" "jq" "unzip" "pv" "newt")
+        for dep in "${dependencies[@]}"; do
+            if ! rpm -qa | grep "$dep"; then  # Check if the package is installed
+                if [[ "$variant_type" =~ ^(kinoite|silverblue)$ ]]; then
+                    log "WARN" "Unsupported OS variant: $variant_type"
+                    log "WARN" "Please install dependencies manually using rpm-ostree."
+                    return 1
+                fi
+                log "INFO" "Installing $dep..."
+                if ! eval "sudo $install_command $dep"; then
+                    log "ERROR" "Failed to install $dep"
+                    return 1
+                fi
+                log "DEBUG" "$dep installed successfully"
+            else
+                log "INFO" "$dep is already installed"
             fi
-            log "DEBUG" "$dep installed successfully"
-        else
-            log "INFO" "$dep is already installed"
-        fi
-    done
+        done
+    else
+        local dependencies=("curl" "wget" "jq" "unzip" "pv" "whiptail")
+        for dep in "${dependencies[@]}"; do
+            if ! command -v "$dep" &>/dev/null; then
+                if [ "$package_manager" = "unknown" ]; then
+                    log "WARN" "Unsupported OS: $os_type"
+                    log "WARN" "Please install dependencies manually"
+                    return 1
+                fi
+                log "INFO" "Installing $dep..."
+                if ! eval "sudo $install_command $dep"; then
+                    log "ERROR" "Failed to install $dep"
+                    return 1
+                fi
+                log "DEBUG" "$dep installed successfully"
+            else
+                log "INFO" "$dep is already installed"
+            fi
+        done
+    fi
 
     log "SUCCESS" "All dependencies are installed"
 }
@@ -173,7 +195,7 @@ download_and_extract() {
     download_path="$SCRIPT_DATA_PATH/$filename"
 
     log "INFO" "Downloading $filename..."
-    if ! wget -q --show-progress -O "$download_path" "$url"; then
+    if ! (wget -q --show-progress -O "$download_path" "$url" || wget -q -O "$download_path" "$url") ; then
         log "ERROR" "Failed to download $url (Error code: $?)"
         return 1
     fi
